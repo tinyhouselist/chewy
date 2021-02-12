@@ -169,6 +169,225 @@ describe Chewy::Index::Import::BulkBuilder do
         end
       end
     end
+
+    context 'with parents' do
+      let(:index) { CommentsIndex }
+      before do
+        stub_model(:comment)
+        stub_index(:comments) do
+          index_scope Comment
+          field :content
+          #TODO extract `join` type handling to the production chewy code to make it reusable
+          field :comment_type, type: :join, relations: {question: [:answer, :comment], answer: :vote, vote: :subvote}, value: -> { commented_id.present? ? {name: comment_type, parent: commented_id} : comment_type }
+        end
+      end
+
+      let!(:existing_comments) do
+        [
+          Comment.create!(id: 1, content: 'Where is Nemo?', comment_type: :question),
+          Comment.create!(id: 2, content: 'Here.', comment_type: :answer, commented_id: 1),
+          Comment.create!(id: 31, content: 'What is the best programming language?', comment_type: :question)
+        ]
+      end
+
+      def do_raw_index_comment(options:, data:)
+        CommentsIndex.client.index(options.merge(index: 'comments', type: '_doc', refresh: true, body: data))
+      end
+
+      def raw_index_comment(comment)
+        options = {id: comment.id, routing: root(comment).id}
+        comment_type = comment.commented_id.present? ? {name: comment.comment_type, parent: comment.commented_id} : comment.comment_type
+        do_raw_index_comment(
+          options: options,
+          data: {content: comment.content, comment_type: comment_type}
+        )
+      end
+
+      def root(comment)
+        current = comment
+        # slow, but it's OK, as we don't have too deep trees
+        current = Comment.find(current.commented_id) while current.commented_id
+        current
+      end
+
+      def routing_for(id)
+        "comment-#{id.div(10)}"
+      end
+
+      before do
+        CommentsIndex.reset! # initialize index
+      end
+
+      let(:comments) do
+        [
+          Comment.create!(id: 3, content: 'There!', comment_type: :answer, commented_id: 1),
+          Comment.create!(id: 4, content: 'Yes, he is here.', comment_type: :vote, commented_id: 2),
+
+          Comment.create!(id: 11, content: 'What is the sense of the universe?', comment_type: :question),
+          Comment.create!(id: 12, content: 'I don\'t know.', comment_type: :answer, commented_id: 11),
+          Comment.create!(id: 13, content: '42', comment_type: :answer, commented_id: 11),
+          Comment.create!(id: 14, content: 'I think that 42 is a correct answer', comment_type: :vote, commented_id: 13),
+
+          Comment.create!(id: 21, content: 'How are you?', comment_type: :question),
+
+          Comment.create!(id: 32, content: 'Ruby', comment_type: :answer, commented_id: 31)
+        ]
+      end
+
+      context 'when indexing a single object' do
+        let(:to_index) { [comments[0]] }
+
+        specify do
+          expect(subject.bulk_body).to eq([
+            {index: {_id: 3, routing: '1', data: {'content' => 'There!', 'comment_type' => {'name' => 'answer', 'parent' => 1}}}},
+          ])
+        end
+      end
+
+      context 'when switching parents' do
+        let(:switching_parent_comment) { comments[0].tap { |c| c.update!(commented_id: 31) } } # id: 3
+        let(:removing_parent_comment) { comments[1].tap { |c| c.update!(commented_id: nil, comment_type: nil) } } # id: 4
+        let(:converting_to_parent_comment) { comments[3].tap { |c| c.update!(commented_id: nil, comment_type: :question) } } # id: 12
+        let(:converting_to_child_comment) { comments[6].tap { |c| c.update!(commented_id: 1, comment_type: :answer) } } # id: 21
+        let(:fields) { %w[commented_id comment_type] }
+
+        let(:to_index) { [switching_parent_comment, removing_parent_comment, converting_to_parent_comment, converting_to_child_comment] }
+
+        before do
+          existing_comments.each { |c| raw_index_comment(c) }
+          comments.each { |c| raw_index_comment(c) }
+        end
+
+        specify do
+          expect(subject.bulk_body).to eq([
+            {delete: {_id: 3, routing: '1', parent: 1}},
+            {index: {_id: 3, routing: '31', data: {'content' => 'There!', 'comment_type' => {'name' => 'answer', 'parent' => 31}}}},
+            {delete: {_id: 4, routing: '1', parent: 2}},
+            {index: {_id: 4, routing: '4', data: {'content' => 'Yes, he is here.', 'comment_type' => nil}}},
+            {delete: {_id: 12, routing: '11', parent: 11}},
+            {index: {_id: 12, routing: '12', data: {'content' => 'I don\'t know.', 'comment_type' => 'question'}}},
+            {delete: {_id: 21, routing: '21'}},
+            {index: {_id: 21, routing: '1', data: {'content' => 'How are you?', 'comment_type' => {'name' => 'answer', 'parent' => 1}}}}
+          ])
+        end
+      end
+
+      context 'when indexing with grandparents' do
+        let(:comments) do
+          [
+            Comment.create!(id: 3, content: 'Yes, he is here.', comment_type: :vote, commented_id: 2),
+            Comment.create!(id: 4, content: 'What?', comment_type: :subvote, commented_id: 3)
+          ]
+        end
+        let(:to_index) { comments }
+
+        before do
+          existing_comments.each { |c| raw_index_comment(c) }
+        end
+
+        specify do
+          expect(subject.bulk_body).to eq([
+            {index: {_id: 3, routing: '1', data: {'content' => 'Yes, he is here.', 'comment_type' => {'name' => 'vote', 'parent' => 2}}}},
+            {index: {_id: 4, routing: '1', data: {'content' => 'What?', 'comment_type' => {'name' => 'subvote', 'parent' => 3}}}}
+          ])
+        end
+      end
+
+      context 'when switching grandparents' do
+        let(:comments) do
+          [
+            Comment.create!(id: 3, content: 'Yes, he is here.', comment_type: :vote, commented_id: 2),
+            Comment.create!(id: 4, content: 'What?', comment_type: :subvote, commented_id: 2),
+          ]
+        end
+        let(:switching_parent_comment) { existing_comments[1].tap { |c| c.update!(commented_id: 31) } } # id: 2
+        let(:fields) { %w[commented_id comment_type] }
+        let(:to_index) { [switching_parent_comment] }
+
+        before do
+          existing_comments.each { |c| raw_index_comment(c) }
+          comments.each { |c| raw_index_comment(c) }
+        end
+
+        xit 'reindexes children and grandchildren' do
+          expect(subject.bulk_body).to eq([
+            {delete: {_id: 2, routing: '1', parent: 1}},
+            {index: {_id: 2, routing: '31', data: {'content' => 'Here.', 'comment_type' => {'name' => 'answer', 'parent' => 31}}}},
+            {delete: {_id: 3, routing: '1', parent: 2}},
+            {index: {_id: 3, routing: '31', data: {'content' => 'Yes, he is here.', 'comment_type' => {'name' => 'vote', 'parent' => 2}}}},
+            {delete: {_id: 4, routing: '1', parent: 3}},
+            {index: {_id: 4, routing: '31', data: {'content' => 'What?', 'comment_type' => {'name' => 'subvote', 'parent' => 3}}}},
+          ])
+        end
+      end
+
+      context 'when indexing' do
+        let(:to_index) { comments }
+
+        specify do
+          expect(subject.bulk_body).to eq([
+            {index: {_id: 3, routing: '1', data: {'content' => 'There!', 'comment_type' => {'name' => 'answer', 'parent' => 1}}}},
+            {index: {_id: 4, routing: '1', data: {'content' => 'Yes, he is here.', 'comment_type' => {'name' => 'vote', 'parent' => 2}}}},
+
+            {index: {_id: 11, routing: '11', data: {'content' => 'What is the sense of the universe?', 'comment_type' => 'question'}}},
+            {index: {_id: 12, routing: '11', data: {'content' => 'I don\'t know.', 'comment_type' => {'name' => 'answer', 'parent' => 11}}}},
+            {index: {_id: 13, routing: '11', data: {'content' => '42', 'comment_type' => {'name' => 'answer', 'parent' => 11}}}},
+            {index: {_id: 14, routing: '11', data: {'content' => 'I think that 42 is a correct answer', 'comment_type' => {'name' => 'vote', 'parent' => 13}}}},
+
+            {index: {_id: 21, routing: '21', data: {'content' => 'How are you?', 'comment_type' => 'question'}}},
+
+            {index: {_id: 32, routing: '31', data: {'content' => 'Ruby', 'comment_type' => {'name' => 'answer', 'parent' => 31}}}},
+          ])
+        end
+      end
+
+      context 'when deleting' do
+        before do
+          existing_comments.each { |c| raw_index_comment(c) }
+          comments.each { |c| raw_index_comment(c) }
+        end
+
+        let(:delete) { comments }
+        specify do
+          expect(subject.bulk_body).to eq([
+            {delete: {_id: 3, routing: '1', parent: 1}},
+            {delete: {_id: 4, routing: '1', parent: 2}},
+
+            {delete: {_id: 11, routing: '11'}},
+            {delete: {_id: 12, routing: '11', parent: 11}},
+            {delete: {_id: 13, routing: '11', parent: 11}},
+            {delete: {_id: 14, routing: '11', parent: 13}},
+
+            {delete: {_id: 21, routing: '21'}},
+
+            {delete: {_id: 32, routing: '31', parent: 31}}
+          ])
+        end
+      end
+
+      context  'when updating' do
+        before do
+          comments.each { |c| raw_index_comment(c) }
+        end
+        let(:fields) { %w[content] }
+        let(:to_index) { comments }
+        specify do
+          expect(subject.bulk_body).to eq([
+            {update: {_id: 3, routing: '1', data: {doc: {'content' => comments[0].content}}}},
+            {update: {_id: 4, routing: '1', data: {doc: {'content' => comments[1].content}}}},
+
+            {update: {_id: 11, routing: '11', data: {doc: {'content' => comments[2].content}}}},
+            {update: {_id: 12, routing: '11', data: {doc: {'content' => comments[3].content}}}},
+            {update: {_id: 13, routing: '11', data: {doc: {'content' => comments[4].content}}}},
+            {update: {_id: 14, routing: '11', data: {doc: {'content' => comments[5].content}}}},
+
+            {update: {_id: 21, routing: '21', data: {doc: {'content' => comments[6].content}}}},
+
+            {update: {_id: 32, routing: '31', data: {doc: {'content' => comments[7].content}}}}
+          ])
+        end
+      end
+    end
   end
 
   describe '#index_objects_by_id' do

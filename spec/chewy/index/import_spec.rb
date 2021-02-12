@@ -493,6 +493,105 @@ describe Chewy::Index::Import do
 
       it_behaves_like 'importing'
     end
+
+    context 'with progressbar output' do
+      let(:mocked_progressbar) { Struct.new(:progress, :total).new(0, 100) }
+
+      it 'imports tracks progress in a single batch' do
+        expect(ProgressBar).to receive(:create).and_return(mocked_progressbar)
+        expect(mocked_progressbar).to receive(:progress).at_least(:once).and_call_original
+        expect(CitiesIndex).to receive(:import_parallel).and_call_original
+
+        CitiesIndex.import(parallel: 1, progressbar: true)
+
+        expect(mocked_progressbar.progress).to eq(3)
+        expect(mocked_progressbar.total).to eq(3)
+      end
+
+      it 'imports tracks progress in many batches' do
+        expect(ProgressBar).to receive(:create).and_return(mocked_progressbar)
+        expect(mocked_progressbar).to receive(:progress).at_least(:once).and_call_original
+        expect(CitiesIndex).to receive(:import_parallel).and_call_original
+
+        batches = City.pluck(:id).map { |id| [id] }
+        expect(CitiesIndex.adapter).to receive(:import_references).and_return(batches)
+
+        CitiesIndex.import(parallel: 3, progressbar: true)
+
+        expect(mocked_progressbar.progress).to eq(3)
+        expect(mocked_progressbar.total).to eq(3)
+      end
+    end
+
+    context 'with parent-child relationship' do
+      before do
+        stub_model(:comment)
+        stub_index(:comments) do
+          index_scope Comment
+          field :content
+          #TODO extract `join` type handling to the production chewy code to make it reusable
+          field :comment_type, type: :join, relations: {question: [:answer, :comment], answer: :vote}, value: -> { commented_id.present? ? {name: comment_type, parent: commented_id} : comment_type }
+        end
+      end
+
+      let!(:comments) do
+        [
+          Comment.create!(id: 1, content: 'Where is Nemo?', comment_type: :question),
+          Comment.create!(id: 2, content: 'Here.', comment_type: :answer, commented_id: 1),
+          Comment.create!(id: 3, content: 'There!', comment_type: :answer, commented_id: 1),
+          Comment.create!(id: 4, content: 'Yes, he is here.', comment_type: :vote, commented_id: 2),
+        ]
+      end
+
+      def imported_comments
+        CommentsIndex.all.map do |comment|
+          comment.attributes.except('_score', '_explanation')
+        end
+      end
+
+      it 'imports parent and children' do
+        CommentsIndex.import!(comments.map(&:id))
+
+        expect(imported_comments).to match_array([
+          {'id' => '1', 'content' => 'Where is Nemo?', 'comment_type' => 'question'},
+          {'id' => '2', 'content' => 'Here.', 'comment_type' => {'name' => 'answer', 'parent' => 1}},
+          {'id' => '3', 'content' => 'There!', 'comment_type' => {'name' => 'answer', 'parent' => 1}},
+          {'id' => '4', 'content' => 'Yes, he is here.', 'comment_type' => {'name' => 'vote', 'parent' => 2}},
+        ])
+
+        answer_ids = CommentsIndex.query(has_parent: {parent_type: 'question', query: {match: {content: 'Where' }}}).pluck(:_id)
+        expect(answer_ids).to match_array(%w[2 3])
+      end
+    end
+
+    context 'with progressbar output' do
+      let(:mocked_progressbar) { Struct.new(:progress, :total).new(0, 100) }
+
+      it 'imports tracks progress in a single batch' do
+        expect(ProgressBar).to receive(:create).and_return(mocked_progressbar)
+        expect(mocked_progressbar).to receive(:progress).at_least(:once).and_call_original
+        expect(CitiesIndex).to receive(:import_parallel).and_call_original
+
+        CitiesIndex.import(parallel: 1, progressbar: true)
+
+        expect(mocked_progressbar.progress).to eq(3)
+        expect(mocked_progressbar.total).to eq(3)
+      end
+
+      it 'imports tracks progress in many batches' do
+        expect(ProgressBar).to receive(:create).and_return(mocked_progressbar)
+        expect(mocked_progressbar).to receive(:progress).at_least(:once).and_call_original
+        expect(CitiesIndex).to receive(:import_parallel).and_call_original
+
+        batches = City.pluck(:id).map { |id| [id] }
+        expect(CitiesIndex.adapter).to receive(:import_references).and_return(batches)
+
+        CitiesIndex.import(parallel: 3, progressbar: true)
+
+        expect(mocked_progressbar.progress).to eq(3)
+        expect(mocked_progressbar.total).to eq(3)
+      end
+    end
   end
 
   describe '.import!', :orm do

@@ -7,18 +7,21 @@
   * Add support for Ruby 3 (@lowang, #734)
 
   * Correct deprecation warning for Elasticsearch 5.6 to 6: empty query for`_delete_by_query`, delete by alias, `index_already_exists_exception` renaming (@bhacaz, #735)
+  * [#765](https://github.com/toptal/chewy/pull/765): Fix ruby 2.7 warnings in rake tasks ([@aglushkov][])
+
+### Bugs Fixed
 
   * Update gemspec dependencies for Rails. Update CI gemfiles and matrix to tests against current LTS Rails versions. (@bhacaz, #733)
 
   * Tweak some wording and formatting; add a note about compatibility; update copyright; remove broken logo; update the CI badge (@bbatsov)
 
   * Update instructions for AWS ElasticSearch (@olancheg, #714)
-  
+
   * Fix more ruby 2.7 keyword params deprecation warnings (@aglushkov, #728)
-  
+
   * Fixed all deprecation warnings in Ruby 2.7 (@gseddon, #715)
 
-  * Added Ruby 2.7 to CircleCI config (@mrzasa, #718)  
+  * Added Ruby 2.7 to CircleCI config (@mrzasa, #718)
 
   * Allow configuration of Active Job queue name (@mrzasa, #707)
 

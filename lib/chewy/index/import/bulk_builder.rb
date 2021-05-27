@@ -31,7 +31,7 @@ module Chewy
 
           @bulk_body ||= @to_index.flat_map(&method(:index_entry)).concat(
             @delete.flat_map(&method(:delete_entry))
-          )
+          ).uniq
         end
 
         # The only purpose of this method is to cache document ids for
@@ -72,7 +72,7 @@ module Chewy
         def reindex_entries(object, data, entry, existing_parent_routing: nil)
           entry[:data] = data
           parent_id = data[join_field]['parent'] if data[join_field]
-          delete = delete_entry(object, existing_parent_routing: existing_parent_routing, parent_id: parent_id).first
+          delete = delete_single_entry(object, existing_parent_routing: existing_parent_routing, parent_id: parent_id).first
           index = {index: entry}
           [delete, index]
         end
@@ -119,10 +119,12 @@ module Chewy
         end
 
         def delete_descendants(root)
+          return [] unless root.respond_to?(:id)
+
           load_descendants(root).flat_map do |d|
             data = data_for(d)
             parent_id = data[join_field]['parent'] if data[join_field]
-            delete_entry(
+            delete_single_entry(
               d,
               existing_parent_routing: existing_routing(root.id),
               parent_id: parent_id
@@ -130,7 +132,7 @@ module Chewy
           end
         end
 
-        def delete_entry(object, existing_parent_routing: nil, parent_id: nil)
+        def delete_single_entry(object, existing_parent_routing: nil, parent_id: nil)
           entry = {}
           entry[:_id] = entry_id(object)
           entry[:_id] ||= object.as_json
@@ -138,7 +140,7 @@ module Chewy
           return [] if entry[:_id].blank?
 
           parent = parents[entry[:_id].to_s]
-          entry_parent_id =  if parent
+          entry_parent_id = if parent
               parent[:parent_id]
             else
               parent_id
@@ -147,7 +149,11 @@ module Chewy
           entry[:routing] = existing_parent_routing || existing_routing(object.id) if join_field?
           entry[:parent] = entry_parent_id if entry_parent_id
 
-          [{delete: entry}] #+ delete_descendants(object)
+          [{delete: entry}]
+        end
+
+        def delete_entry(object, existing_parent_routing: nil, parent_id: nil)
+          delete_single_entry(object, existing_parent_routing: existing_parent_routing, parent_id: parent_id) + delete_descendants(object)
         end
 
         def populate_cache

@@ -339,10 +339,10 @@ describe Chewy::Index::Import::BulkBuilder do
 
         it 'removes all descendants' do
           expect(subject.bulk_body).to eq([
-            {delete: {_id: 1, routing: '1', parent: 1}},
+            {delete: {_id: 1, routing: '1'}},
             {delete: {_id: 2, routing: '1', parent: 1}},
-            {delete: {_id: 3, routing: '1', parent: 1}},
-            {delete: {_id: 4, routing: '1', parent: 2}},
+            {delete: {_id: 3, routing: '1', parent: 2}},
+            {delete: {_id: 4, routing: '1', parent: 3}},
           ])
         end
       end

@@ -48,20 +48,6 @@ module Chewy
           @crutches ||= Chewy::Index::Crutch::Crutches.new @index, @to_index
         end
 
-        def parents
-          return unless type_root.parent_id
-
-          @parents ||= begin
-            ids = @index.map do |object|
-              object.respond_to?(:id) ? object.id : object
-            end
-            ids.concat(@delete.map do |object|
-              object.respond_to?(:id) ? object.id : object
-            end)
-            @index.filter(ids: {values: ids}).order('_doc').pluck(:_id, :_parent).to_h
-          end
-        end
-
         def index_entry(object)
           entry = {}
           entry[:_id] = index_object_ids[object] if index_object_ids[object]
@@ -71,12 +57,10 @@ module Chewy
 
           entry[:routing] = routing(object) if join_field?
           if parent_changed?(data, parent)
-            entry[:data] = data
-            delete = delete_entry(object).first
-            index = {index: entry}
-            [delete, index]
+            reindex_entries(object, data, entry) + reindex_descendants(object)
           elsif @fields.present?
             return [] unless entry[:_id]
+
             entry[:data] = {doc: data_for(object, fields: @fields)}
             [{update: entry}]
           else
@@ -85,7 +69,68 @@ module Chewy
           end
         end
 
-        def delete_entry(object)
+        def reindex_entries(object, data, entry, existing_parent_routing: nil)
+          entry[:data] = data
+          parent_id = data[join_field]['parent'] if data[join_field]
+          delete = delete_entry(object, existing_parent_routing: existing_parent_routing, parent_id: parent_id).first
+          index = {index: entry}
+          [delete, index]
+        end
+
+        def load_descendants(root)
+          join_field_value = data_for(root)[join_field]
+          root_type =
+            if join_field_value.is_a? String
+              join_field_value
+            elsif join_field_value.is_a? Hash
+              join_field_value["name"]
+            end
+          return [] unless root_type
+
+          descendant_ids = []
+          grouped_parents = {root_type => [root.id]}
+          until grouped_parents.empty? do
+            children_data = grouped_parents.flat_map do |parent_type, parent_ids|
+              # ignore_unmapped to avoid error for the leaves of the tree (types without children)
+              @index.query(has_parent: {parent_type: parent_type, ignore_unmapped: true, query: {ids: {values: parent_ids}}}).pluck(:_id, "#{join_field}").map{|id, join| [join['name'], id]}
+
+            end
+            descendant_ids |= children_data.map(&:last)
+
+            grouped_parents = {}
+            children_data.each do |name, id|
+              next unless name
+              grouped_parents[name] ||= []
+              grouped_parents[name] << id
+            end
+          end
+          descendants = @index.adapter.load(descendant_ids)
+        end
+
+        def reindex_descendants(root)
+          load_descendants(root).flat_map do |d|
+            reindex_entries(
+              d,
+              data_for(d),
+              {_id: d.id, routing: routing(root)},
+              existing_parent_routing: existing_routing(root.id)
+            )
+          end
+        end
+
+        def delete_descendants(root)
+          load_descendants(root).flat_map do |d|
+            data = data_for(d)
+            parent_id = data[join_field]['parent'] if data[join_field]
+            delete_entry(
+              d,
+              existing_parent_routing: existing_routing(root.id),
+              parent_id: parent_id
+            )
+          end
+        end
+
+        def delete_entry(object, existing_parent_routing: nil, parent_id: nil)
           entry = {}
           entry[:_id] = entry_id(object)
           entry[:_id] ||= object.as_json
@@ -93,11 +138,16 @@ module Chewy
           return [] if entry[:_id].blank?
 
           parent = parents[entry[:_id].to_s]
+          entry_parent_id =  if parent
+              parent[:parent_id]
+            else
+              parent_id
+            end
 
-          entry[:routing] = existing_routing(object.id) if join_field?
-          entry[:parent] = parent[:parent_id] if parent && parent[:parent_id]
+          entry[:routing] = existing_parent_routing || existing_routing(object.id) if join_field?
+          entry[:parent] = entry_parent_id if entry_parent_id
 
-          [{delete: entry}]
+          [{delete: entry}] #+ delete_descendants(object)
         end
 
         def populate_cache
@@ -122,8 +172,9 @@ module Chewy
         def existing_routing(id)
           # All objects needed here should be cached in #load_cache,
           # if not, we raise an error.
-          binding.pry unless @cache[id.to_s]
-          raise RoutingCacheMissError unless @cache[id.to_s]
+          # We don't have some, e.g. for descendants
+          #raise RoutingCacheMissError unless @cache[id.to_s]
+          return unless @cache[id.to_s]
 
           @cache[id.to_s][:routing]
         end

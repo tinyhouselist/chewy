@@ -179,6 +179,7 @@ describe Chewy::Index::Import::BulkBuilder do
           field :content
           #TODO extract `join` type handling to the production chewy code to make it reusable
           field :comment_type, type: :join, relations: {question: [:answer, :comment], answer: :vote, vote: :subvote}, value: -> { commented_id.present? ? {name: comment_type, parent: commented_id} : comment_type }
+          # field :comment_type, type: :join, relations: {}, join: {parent: :commented_id, name: :comment_type, children: :children }
         end
       end
 
@@ -297,7 +298,7 @@ describe Chewy::Index::Import::BulkBuilder do
         let(:comments) do
           [
             Comment.create!(id: 3, content: 'Yes, he is here.', comment_type: :vote, commented_id: 2),
-            Comment.create!(id: 4, content: 'What?', comment_type: :subvote, commented_id: 2),
+            Comment.create!(id: 4, content: 'What?', comment_type: :subvote, commented_id: 3)
           ]
         end
         let(:switching_parent_comment) { existing_comments[1].tap { |c| c.update!(commented_id: 31) } } # id: 2
@@ -309,7 +310,7 @@ describe Chewy::Index::Import::BulkBuilder do
           comments.each { |c| raw_index_comment(c) }
         end
 
-        xit 'reindexes children and grandchildren' do
+        it 'reindexes children and grandchildren' do
           expect(subject.bulk_body).to eq([
             {delete: {_id: 2, routing: '1', parent: 1}},
             {index: {_id: 2, routing: '31', data: {'content' => 'Here.', 'comment_type' => {'name' => 'answer', 'parent' => 31}}}},
@@ -317,6 +318,31 @@ describe Chewy::Index::Import::BulkBuilder do
             {index: {_id: 3, routing: '31', data: {'content' => 'Yes, he is here.', 'comment_type' => {'name' => 'vote', 'parent' => 2}}}},
             {delete: {_id: 4, routing: '1', parent: 3}},
             {index: {_id: 4, routing: '31', data: {'content' => 'What?', 'comment_type' => {'name' => 'subvote', 'parent' => 3}}}},
+          ])
+        end
+
+      end
+
+      describe 'when removing parents or grandparents' do
+        let(:comments) do
+          [
+            Comment.create!(id: 3, content: 'Yes, he is here.', comment_type: :vote, commented_id: 2),
+            Comment.create!(id: 4, content: 'What?', comment_type: :subvote, commented_id: 3)
+          ]
+        end
+        let(:delete) { [existing_comments[0]] } # id: 1
+
+        before do
+          existing_comments.each { |c| raw_index_comment(c) }
+          comments.each { |c| raw_index_comment(c) }
+        end
+
+        it 'removes all descendants' do
+          expect(subject.bulk_body).to eq([
+            {delete: {_id: 1, routing: '1', parent: 1}},
+            {delete: {_id: 2, routing: '1', parent: 1}},
+            {delete: {_id: 3, routing: '1', parent: 1}},
+            {delete: {_id: 4, routing: '1', parent: 2}},
           ])
         end
       end

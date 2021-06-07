@@ -53,11 +53,11 @@ module Chewy
           entry[:_id] = index_object_ids[object] if index_object_ids[object]
 
           data = data_for(object)
-          parent = parents[entry[:_id].to_s]
+          parent = cache(entry[:_id])
 
           entry[:routing] = routing(object) if join_field?
           if parent_changed?(data, parent)
-            reindex_entries(object, data, entry) + reindex_descendants(object)
+            reindex_entries(object, data) + reindex_descendants(object)
           elsif @fields.present?
             return [] unless entry[:_id]
 
@@ -69,12 +69,58 @@ module Chewy
           end
         end
 
-        def reindex_entries(object, data, entry, existing_parent_routing: nil)
+        def reindex_entries(object, data, root: object)
+          entry = {}
+          entry[:_id] = index_object_ids[object] || entry_id(object)
           entry[:data] = data
-          parent_id = data[join_field]['parent'] if data[join_field]
-          delete = delete_single_entry(object, existing_parent_routing: existing_parent_routing, parent_id: parent_id).first
+          entry[:routing] = routing(root) || routing(object) if join_field?
+          delete = delete_single_entry(object, root: root).first
           index = {index: entry}
           [delete, index]
+        end
+
+        def reindex_descendants(root)
+          load_descendants(root).flat_map do |object|
+            reindex_entries(
+              object,
+              data_for(object),
+              root: root
+            )
+          end
+        end
+
+        def delete_entry(object)
+          delete_single_entry(object) + delete_descendants(object)
+        end
+
+        def delete_single_entry(object, root: object)
+          entry = {}
+          entry[:_id] = entry_id(object)
+          entry[:_id] ||= object.as_json
+
+          return [] if entry[:_id].blank?
+
+          if join_field?
+            cached_parent = cache(entry[:_id])
+            entry_parent_id = if cached_parent
+                cached_parent[:parent_id]
+              else
+                find_parent_id(object)
+              end
+
+            entry[:routing] = existing_routing(root.try(:id)) || existing_routing(object.id)
+            entry[:parent] = entry_parent_id if entry_parent_id
+          end
+
+          [{delete: entry}]
+        end
+
+        def delete_descendants(root)
+          return [] unless root.respond_to?(:id)
+
+          load_descendants(root).flat_map do |object|
+            delete_single_entry(object, root: root)
+          end
         end
 
         def load_descendants(root)
@@ -108,58 +154,12 @@ module Chewy
           @index.adapter.load(descendant_ids)
         end
 
-        def reindex_descendants(root)
-          load_descendants(root).flat_map do |object|
-            reindex_entries(
-              object,
-              data_for(object),
-              {_id: object.id, routing: routing(root)},
-              existing_parent_routing: existing_routing(root.id)
-            )
-          end
-        end
-
-        def delete_descendants(root)
-          return [] unless root.respond_to?(:id)
-
-          load_descendants(root).flat_map do |object|
-            data = data_for(object)
-            parent_id = data[join_field]['parent'] if data[join_field]
-            @cache[data[:_id].to_s] = {parent_id: parent_id}
-            delete_single_entry(
-              object,
-              existing_parent_routing: existing_routing(root.id),
-              parent_id: parent_id
-            )
-          end
-        end
-
-        def delete_single_entry(object, existing_parent_routing: nil, parent_id: nil)
-          entry = {}
-          entry[:_id] = entry_id(object)
-          entry[:_id] ||= object.as_json
-
-          return [] if entry[:_id].blank?
-
-          parent = parents[entry[:_id].to_s]
-          entry_parent_id = if parent
-              parent[:parent_id]
-            else
-              parent_id
-            end
-
-          entry[:routing] = existing_parent_routing || existing_routing(object.id) if join_field?
-          entry[:parent] = entry_parent_id if entry_parent_id
-
-          [{delete: entry}]
-        end
-
-        def delete_entry(object)
-          delete_single_entry(object) + delete_descendants(object)
-        end
-
         def populate_cache
-          @cache ||= load_cache
+          @cache = load_cache
+        end
+
+        def cache(id)
+          @cache[id.to_s]
         end
 
         def load_cache
@@ -179,14 +179,16 @@ module Chewy
 
         def existing_routing(id)
           # All objects needed here should be cached in #load_cache,
-          # if not, we raise an error.
-          # We don't have some, e.g. for descendants
-          #raise RoutingCacheMissError unless @cache[id.to_s]
-          return unless @cache[id.to_s]
+          # if not, we return nil. In some cases we don't have existing routing cached,
+          # e.g. for loaded descendants
+          return unless cache(id)
 
-          @cache[id.to_s][:routing]
+          cache(id.to_s)[:routing]
         end
 
+        # Two types of ids:
+        # * of parents of the objects to be indexed
+        # * of objects to be deleted
         def ids_for_cache
           ids = @to_index.flat_map do |object|
             [find_parent_id(object), object.id] if object.respond_to?(:id)
@@ -209,11 +211,9 @@ module Chewy
           end
         end
 
-        def parents
-          @cache
-        end
-
         def find_parent_id(object)
+          return unless object.respond_to?(:id)
+
           join = data_for(object)[join_field]
           join['parent'] if join
         end

@@ -1,11 +1,10 @@
-          require 'pry' #FIXME, remove it
 module Chewy
   class Index
     module Import
       # This class purpose is to build ES client-acceptable bulk
       # request body from the passed objects for index and deletion.
       # It handles parent-child relationships as well by fetching
-      # existing documents from ES, taking their `_parent` field and
+      # existing documents from ES and database, taking their join field values and
       # using it in the bulk body.
       # If fields are passed - it creates partial update entries except for
       # the cases when the type has parent and parent_id has been changed.
@@ -102,7 +101,8 @@ module Chewy
 
           if join_field?
             cached_parent = cache(entry[:_id])
-            entry_parent_id = if cached_parent
+            entry_parent_id =
+              if cached_parent
                 cached_parent[:parent_id]
               else
                 find_parent_id(object)
@@ -227,6 +227,7 @@ module Chewy
         def find_join_field
           type_settings = @index.mappings_hash[:mappings]
           return unless type_settings
+
           properties = type_settings[:properties]
           join_fields = properties.find { |_, options| options[:type] == :join }
           return unless join_fields

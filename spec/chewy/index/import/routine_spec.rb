@@ -11,8 +11,8 @@ describe Chewy::Index::Import::Routine do
     CitiesIndex.create!
   end
 
-  let(:index) { [double(id: 1, name: 'Name', object: {}), double(id: 2, name: 'Name', object: {})] }
-  let(:delete) { [double(id: 3, name: 'Name')] }
+  let(:index) { [double('to_index', id: 1, name: 'Name', object: {}), double(id: 2, name: 'Name', object: {})] }
+  let(:delete) { [double('to_delete', id: 3, name: 'Name', object: {})] }
 
   describe '#options' do
     specify do

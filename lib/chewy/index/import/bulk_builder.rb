@@ -78,41 +78,42 @@ module Chewy
         end
 
         def load_descendants(root)
-          join_field_value = data_for(root)[join_field]
-          root_type =
-            if join_field_value.is_a? String
-              join_field_value
-            elsif join_field_value.is_a? Hash
-              join_field_value["name"]
-            end
+          root_type = join_field_type(root)
           return [] unless root_type
 
           descendant_ids = []
           grouped_parents = {root_type => [root.id]}
           until grouped_parents.empty? do
             children_data = grouped_parents.flat_map do |parent_type, parent_ids|
-              # ignore_unmapped to avoid error for the leaves of the tree (types without children)
-              @index.query(has_parent: {parent_type: parent_type, ignore_unmapped: true, query: {ids: {values: parent_ids}}}).pluck(:_id, "#{join_field}").map{|id, join| [join['name'], id]}
-
+              @index.query(
+                has_parent: {
+                  parent_type: parent_type,
+                  # ignore_unmapped to avoid error for the leaves of the tree
+                  # (types without children)
+                  ignore_unmapped: true,
+                  query: {ids: {values: parent_ids}}
+                }
+              ).pluck(:_id, join_field).map { |id, join| [join['name'], id] }
             end
             descendant_ids |= children_data.map(&:last)
 
             grouped_parents = {}
             children_data.each do |name, id|
               next unless name
+
               grouped_parents[name] ||= []
               grouped_parents[name] << id
             end
           end
-          descendants = @index.adapter.load(descendant_ids)
+          @index.adapter.load(descendant_ids)
         end
 
         def reindex_descendants(root)
-          load_descendants(root).flat_map do |d|
+          load_descendants(root).flat_map do |object|
             reindex_entries(
-              d,
-              data_for(d),
-              {_id: d.id, routing: routing(root)},
+              object,
+              data_for(object),
+              {_id: object.id, routing: routing(root)},
               existing_parent_routing: existing_routing(root.id)
             )
           end
@@ -121,11 +122,12 @@ module Chewy
         def delete_descendants(root)
           return [] unless root.respond_to?(:id)
 
-          load_descendants(root).flat_map do |d|
-            data = data_for(d)
+          load_descendants(root).flat_map do |object|
+            data = data_for(object)
             parent_id = data[join_field]['parent'] if data[join_field]
+            @cache[data[:_id].to_s] = {parent_id: parent_id}
             delete_single_entry(
-              d,
+              object,
               existing_parent_routing: existing_routing(root.id),
               parent_id: parent_id
             )
@@ -152,8 +154,8 @@ module Chewy
           [{delete: entry}]
         end
 
-        def delete_entry(object, existing_parent_routing: nil, parent_id: nil)
-          delete_single_entry(object, existing_parent_routing: existing_parent_routing, parent_id: parent_id) + delete_descendants(object)
+        def delete_entry(object)
+          delete_single_entry(object) + delete_descendants(object)
         end
 
         def populate_cache
@@ -230,6 +232,16 @@ module Chewy
           return unless join_fields
 
           join_fields.first.to_s
+        end
+
+        def join_field_type(object)
+          join_field_value = data_for(object)[join_field]
+          case join_field_value
+          when String
+            join_field_value
+          when Hash
+            join_field_value['name']
+          end
         end
 
         def join_field?

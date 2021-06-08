@@ -500,7 +500,7 @@ describe Chewy::Index::Import do
         stub_index(:comments) do
           index_scope Comment
           field :content
-          field :comment_type, type: :join, relations: {question: %i[answer comment], answer: :vote}, join_type: comment_type, join_id: commented_id
+          field :comment_type, type: :join, relations: {question: %i[answer comment], answer: :vote}, join_type: :comment_type, join_id: :commented_id
         end
       end
 

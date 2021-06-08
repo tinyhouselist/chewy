@@ -127,7 +127,7 @@ module Chewy
 
           descendant_ids = []
           grouped_parents = {root_type => [root.id]}
-          until grouped_parents.empty? do
+          until grouped_parents.empty?
             children_data = grouped_parents.flat_map do |parent_type, parent_ids|
               @index.query(
                 has_parent: {
@@ -266,7 +266,7 @@ module Chewy
           if new_join_field_value.is_a? Hash
             # If we have a hash in the join field,
             # we're taing the `parent` field that helds the parent id.
-            new_parent_id = new_join_field_value["parent"]
+            new_parent_id = new_join_field_value['parent']
             new_parent_id != old_parent[:parent_id]
           else
             # If there is a non-hash value (String or nil), it means that the join field is changed

@@ -238,7 +238,7 @@ describe Chewy::Index::Import::BulkBuilder do
 
         specify do
           expect(subject.bulk_body).to eq([
-            {index: {_id: 3, routing: '1', data: {'content' => 'There!', 'comment_type' => {'name' => 'answer', 'parent' => 1}}}},
+            {index: {_id: 3, routing: '1', data: {'content' => 'There!', 'comment_type' => {'name' => 'answer', 'parent' => 1}}}}
           ])
         end
       end
@@ -315,10 +315,9 @@ describe Chewy::Index::Import::BulkBuilder do
             {delete: {_id: 3, routing: '1', parent: 2}},
             {index: {_id: 3, routing: '31', data: {'content' => 'Yes, he is here.', 'comment_type' => {'name' => 'vote', 'parent' => 2}}}},
             {delete: {_id: 4, routing: '1', parent: 3}},
-            {index: {_id: 4, routing: '31', data: {'content' => 'What?', 'comment_type' => {'name' => 'subvote', 'parent' => 3}}}},
+            {index: {_id: 4, routing: '31', data: {'content' => 'What?', 'comment_type' => {'name' => 'subvote', 'parent' => 3}}}}
           ])
         end
-
       end
 
       describe 'when removing parents or grandparents' do
@@ -340,7 +339,7 @@ describe Chewy::Index::Import::BulkBuilder do
             {delete: {_id: 1, routing: '1'}},
             {delete: {_id: 2, routing: '1', parent: 1}},
             {delete: {_id: 3, routing: '1', parent: 2}},
-            {delete: {_id: 4, routing: '1', parent: 3}},
+            {delete: {_id: 4, routing: '1', parent: 3}}
           ])
         end
       end
@@ -360,7 +359,7 @@ describe Chewy::Index::Import::BulkBuilder do
 
             {index: {_id: 21, routing: '21', data: {'content' => 'How are you?', 'comment_type' => 'question'}}},
 
-            {index: {_id: 32, routing: '31', data: {'content' => 'Ruby', 'comment_type' => {'name' => 'answer', 'parent' => 31}}}},
+            {index: {_id: 32, routing: '31', data: {'content' => 'Ruby', 'comment_type' => {'name' => 'answer', 'parent' => 31}}}}
           ])
         end
       end

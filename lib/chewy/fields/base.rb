@@ -1,9 +1,10 @@
-  require 'pry' #FIXME
 module Chewy
   module Fields
     class Base
       attr_reader :name, :options, :children
       attr_accessor :parent
+
+      JOIN_FIELD_EXTRA_OPTIONS = %i[join_id join_type].freeze
 
       def initialize(name, value: nil, **options)
         @name = name.to_sym
@@ -17,7 +18,7 @@ module Chewy
       def update_options!(**options)
         @join_type = options[:join_type]
         @join_id = options[:join_id]
-        @options = options.reject{|k, _| k == :join_id || k == :join_type }
+        @options = options.reject { |k, _| JOIN_FIELD_EXTRA_OPTIONS.include?(k) }
       end
 
       def multi_field?

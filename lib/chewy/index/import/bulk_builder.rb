@@ -9,8 +9,6 @@ module Chewy
       # If fields are passed - it creates partial update entries except for
       # the cases when the type has parent and parent_id has been changed.
       class BulkBuilder
-        RoutingCacheMissError = Class.new(StandardError)
-
         # @param index [Chewy::Index] desired index
         # @param to_index [Array<Object>] objects to index
         # @param delete [Array<Object>] objects or ids to delete

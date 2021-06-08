@@ -541,6 +541,41 @@ describe Chewy::Fields::Base do
           end
         end
 
+        context 'join field type' do
+          before do
+            stub_model(:comment)
+            stub_index(:comments) do
+              index_scope Comment
+              field :id
+              field :hierarchy, type: :join, relations: {question: %i[answer comment], answer: :vote, vote: :subvote}, join_type: :comment_type, join_id: :commented_id
+            end
+          end
+
+          specify do
+            expect(
+              CommentsIndex.root.compose(
+                {'id' => 1, 'comment_type' => 'question'}
+              )
+            ).to eq(
+              {'id' => 1, 'hierarchy' => 'question'}
+            )
+
+            expect(
+              CommentsIndex.root.compose(
+                {'id' => 2, 'comment_type' => 'answer', 'commented_id' => 1}
+              )
+            ).to eq(
+              {'id' => 2, 'hierarchy' => {'name' => 'answer', 'parent' => 1}}
+            )
+
+            expect do
+              CommentsIndex.root.compose(
+                {'id' => 2, 'comment_type' => 'asd', 'commented_id' => 1}
+              )
+            end.to raise_error Chewy::InvalidJoinFieldType
+          end
+        end
+
         context 'without ignore_blank option' do
           before do
             stub_index(:countries) do

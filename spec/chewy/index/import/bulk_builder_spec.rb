@@ -177,9 +177,7 @@ describe Chewy::Index::Import::BulkBuilder do
         stub_index(:comments) do
           index_scope Comment
           field :content
-          #TODO extract `join` type handling to the production chewy code to make it reusable
-          field :comment_type, type: :join, relations: {question: [:answer, :comment], answer: :vote, vote: :subvote}, value: -> { commented_id.present? ? {name: comment_type, parent: commented_id} : comment_type }
-          # field :comment_type, type: :join, relations: {}, join: {parent: :commented_id, name: :comment_type, children: :children }
+          field :comment_type, type: :join, relations: {question: %i[answer comment], answer: :vote, vote: :subvote}, join_type: :comment_type, join_id: :commented_id
         end
       end
 

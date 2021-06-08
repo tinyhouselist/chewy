@@ -494,35 +494,6 @@ describe Chewy::Index::Import do
       it_behaves_like 'importing'
     end
 
-    context 'with progressbar output' do
-      let(:mocked_progressbar) { Struct.new(:progress, :total).new(0, 100) }
-
-      it 'imports tracks progress in a single batch' do
-        expect(ProgressBar).to receive(:create).and_return(mocked_progressbar)
-        expect(mocked_progressbar).to receive(:progress).at_least(:once).and_call_original
-        expect(CitiesIndex).to receive(:import_parallel).and_call_original
-
-        CitiesIndex.import(parallel: 1, progressbar: true)
-
-        expect(mocked_progressbar.progress).to eq(3)
-        expect(mocked_progressbar.total).to eq(3)
-      end
-
-      it 'imports tracks progress in many batches' do
-        expect(ProgressBar).to receive(:create).and_return(mocked_progressbar)
-        expect(mocked_progressbar).to receive(:progress).at_least(:once).and_call_original
-        expect(CitiesIndex).to receive(:import_parallel).and_call_original
-
-        batches = City.pluck(:id).map { |id| [id] }
-        expect(CitiesIndex.adapter).to receive(:import_references).and_return(batches)
-
-        CitiesIndex.import(parallel: 3, progressbar: true)
-
-        expect(mocked_progressbar.progress).to eq(3)
-        expect(mocked_progressbar.total).to eq(3)
-      end
-    end
-
     context 'with parent-child relationship' do
       before do
         stub_model(:comment)
@@ -561,35 +532,6 @@ describe Chewy::Index::Import do
 
         answer_ids = CommentsIndex.query(has_parent: {parent_type: 'question', query: {match: {content: 'Where' }}}).pluck(:_id)
         expect(answer_ids).to match_array(%w[2 3])
-      end
-    end
-
-    context 'with progressbar output' do
-      let(:mocked_progressbar) { Struct.new(:progress, :total).new(0, 100) }
-
-      it 'imports tracks progress in a single batch' do
-        expect(ProgressBar).to receive(:create).and_return(mocked_progressbar)
-        expect(mocked_progressbar).to receive(:progress).at_least(:once).and_call_original
-        expect(CitiesIndex).to receive(:import_parallel).and_call_original
-
-        CitiesIndex.import(parallel: 1, progressbar: true)
-
-        expect(mocked_progressbar.progress).to eq(3)
-        expect(mocked_progressbar.total).to eq(3)
-      end
-
-      it 'imports tracks progress in many batches' do
-        expect(ProgressBar).to receive(:create).and_return(mocked_progressbar)
-        expect(mocked_progressbar).to receive(:progress).at_least(:once).and_call_original
-        expect(CitiesIndex).to receive(:import_parallel).and_call_original
-
-        batches = City.pluck(:id).map { |id| [id] }
-        expect(CitiesIndex.adapter).to receive(:import_references).and_return(batches)
-
-        CitiesIndex.import(parallel: 3, progressbar: true)
-
-        expect(mocked_progressbar.progress).to eq(3)
-        expect(mocked_progressbar.total).to eq(3)
       end
     end
   end

@@ -181,7 +181,7 @@ module Chewy
           # e.g. for loaded descendants
           return unless cache(id)
 
-          cache(id.to_s)[:routing]
+          cache(id)[:routing]
         end
 
         # Two types of ids:

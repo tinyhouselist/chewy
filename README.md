@@ -456,7 +456,7 @@ To use it, you need to pass `relations`, `join_type` and `join_id` options:
 ```ruby
 field :hierarchy_link, type: :join, relations: {question: %i[answer comment], answer: :vote, vote: :subvote}, join_type: :comment_type, join_id: :commented_id
 ```
-assuming you have `comment_type` and `comment_id` fields in your model.
+assuming you have `comment_type` and `commented_id` fields in your model.
 
 Note that when you remove or reindex a parent, it's children and grandchildren will be removed/reindexed as well.
 This may require additional queries to the database and to elastisearch.

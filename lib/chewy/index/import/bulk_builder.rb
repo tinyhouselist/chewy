@@ -265,7 +265,7 @@ module Chewy
           new_join_field_value = data[join_field]
           if new_join_field_value.is_a? Hash
             # If we have a hash in the join field,
-            # we're taing the `parent` field that helds the parent id.
+            # we're taking the `parent` field that holds the parent id.
             new_parent_id = new_join_field_value['parent']
             new_parent_id != old_parent[:parent_id]
           else

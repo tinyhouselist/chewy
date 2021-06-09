@@ -98,7 +98,7 @@ module Chewy
 
         def load(ids, **options)
           scope = all_scope_where_ids_in(ids)
-          additional_scope = options[options[:_index].try(:to_sym)].try(:[], :scope) || options[:scope]
+          additional_scope = options[options[:_index].to_sym].try(:[], :scope) || options[:scope]
 
           loaded_objects = load_scope_objects(scope, additional_scope)
             .index_by do |object|

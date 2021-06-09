@@ -209,10 +209,6 @@ describe Chewy::Index::Import::BulkBuilder do
         current
       end
 
-      def routing_for(id)
-        "comment-#{id.div(10)}"
-      end
-
       before do
         CommentsIndex.reset! # initialize index
       end

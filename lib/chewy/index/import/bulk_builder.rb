@@ -149,7 +149,7 @@ module Chewy
               grouped_parents[name] << id
             end
           end
-          @index.adapter.load(descendant_ids)
+          @index.adapter.load(descendant_ids, _index: @index.base_name)
         end
 
         def populate_cache

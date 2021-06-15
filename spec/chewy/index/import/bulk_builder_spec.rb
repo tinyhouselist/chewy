@@ -1,5 +1,22 @@
 require 'spec_helper'
 
+SimpleComment = Class.new do
+  attr_reader :content, :comment_type, :commented_id, :updated_at, :id
+
+  def initialize(hash)
+    @id = hash['id']
+    @content = hash['content']
+    @comment_type = hash['comment_type']
+    @commented_id = hash['commented_id']
+    @updated_at = hash['updated_at']
+  end
+
+  def derived
+    "[derived] #{content}"
+  end
+end
+
+
 describe Chewy::Index::Import::BulkBuilder do
   before { Chewy.massacre }
 
@@ -246,21 +263,6 @@ describe Chewy::Index::Import::BulkBuilder do
       end
 
       context 'with raw import' do
-        SimpleComment = Class.new
-          attr_reader :content, :comment_type, :commented_id, :updated_at, :id
-          def initialize(hash)
-            @id = hash['id']
-            @content = hash['content']
-            @comment_type = hash['comment_type']
-            @commented_id = hash['commented_id']
-            @updated_at = hash['updated_at']
-          end
-
-          def derived
-            "[derived] #{content}"
-          end
-        end
-
         before do
           stub_index(:comments) do
             index_scope Comment

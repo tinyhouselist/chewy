@@ -1,5 +1,11 @@
 require 'spec_helper'
 
+RawCity = Struct.new(:id) do
+  def rating
+    id * 10
+  end
+end
+
 describe Chewy::Index::Adapter::ActiveRecord, :active_record do
   before do
     stub_model(:city)
@@ -577,12 +583,6 @@ describe Chewy::Index::Adapter::ActiveRecord, :active_record do
 
       let!(:cities) { Array.new(3) { |i| City.create!(rating: i / 2) } }
       let(:city_ids) { cities.map(&:id) }
-
-      RawCity = Struct.new(:id) do
-        def rating
-          id * 10
-        end
-      end
 
       let(:raw_import) { ->(hash) { RawCity.new(hash['id']) } }
       it 'uses the custom loader' do

@@ -571,5 +571,31 @@ describe Chewy::Index::Adapter::ActiveRecord, :active_record do
         ).to eq(cities.first(2) + [nil])
       end
     end
+
+    context 'with raw_import option' do
+      subject { described_class.new(City) }
+
+      let!(:cities) { Array.new(3) { |i| City.create!(rating: i / 2) } }
+      let(:city_ids) { cities.map(&:id) }
+
+      RawCity = Struct.new(:id) do
+        def rating
+          id * 10
+        end
+      end
+
+      let(:raw_import) { ->(hash) { RawCity.new(hash['id']) } }
+      it 'uses the custom loader' do
+        raw_cities = subject.load(city_ids, _index: 'users', raw_import: raw_import).map do |c|
+          {id: c.id, rating: c.rating}
+        end
+
+        expect(raw_cities).to eq([
+          {id: 1, rating: 10},
+          {id: 2, rating: 20},
+          {id: 3, rating: 30}
+        ])
+      end
+    end
   end
 end

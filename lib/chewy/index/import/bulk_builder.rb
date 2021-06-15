@@ -41,8 +41,8 @@ module Chewy
 
       private
 
-        def crutches
-          @crutches ||= Chewy::Index::Crutch::Crutches.new @index, @to_index
+        def crutches_for_index
+          @crutches_for_index ||= Chewy::Index::Crutch::Crutches.new @index, @to_index
         end
 
         def index_entry(object)
@@ -77,10 +77,12 @@ module Chewy
         end
 
         def reindex_descendants(root)
-          load_descendants(root).flat_map do |object|
+          descendants = load_descendants(root)
+          crutches = Chewy::Index::Crutch::Crutches.new @index, [root, *descendants]
+          descendants.flat_map do |object|
             reindex_entries(
               object,
-              data_for(object),
+              data_for(object, crutches: crutches),
               root: root
             )
           end
@@ -149,7 +151,7 @@ module Chewy
               grouped_parents[name] << id
             end
           end
-          @index.adapter.load(descendant_ids, _index: @index.base_name)
+          @index.adapter.load(descendant_ids, _index: @index.base_name, raw_import: @index._default_import_options[:raw_import])
         end
 
         def populate_cache
@@ -212,7 +214,7 @@ module Chewy
         def find_parent_id(object)
           return unless object.respond_to?(:id)
 
-          join = data_for(object)[join_field]
+          join = data_for(object, fields: [join_field.to_sym])[join_field]
           join['parent'] if join
         end
 
@@ -234,7 +236,21 @@ module Chewy
         end
 
         def join_field_type(object)
-          join_field_value = data_for(object)[join_field]
+          return unless join_field?
+
+          raw_object =
+            if @index._default_import_options[:raw_import]
+              @index._default_import_options[:raw_import].call(object.attributes)
+            else
+              object
+            end
+
+          join_field_value = data_for(
+            raw_object,
+            fields: [join_field.to_sym], # build only the field that is needed
+            crutches: Chewy::Index::Crutch::Crutches.new(@index, [raw_object])
+          )[join_field]
+
           case join_field_value
           when String
             join_field_value
@@ -247,7 +263,7 @@ module Chewy
           join_field && !join_field.empty?
         end
 
-        def data_for(object, fields: [])
+        def data_for(object, fields: [], crutches: crutches_for_index)
           @index.compose(object, crutches, fields: fields)
         end
 

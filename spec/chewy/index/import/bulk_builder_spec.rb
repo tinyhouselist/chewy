@@ -176,7 +176,13 @@ describe Chewy::Index::Import::BulkBuilder do
         stub_model(:comment)
         stub_index(:comments) do
           index_scope Comment
+
+          crutch :content_with_crutches do |collection| # collection here is a current batch of products
+            collection.map { |comment| [comment.id, "[crutches] #{comment.content}"] }.to_h
+          end
+
           field :content
+          field :content_with_crutches, value: ->(comment, crutches) { crutches.content_with_crutches[comment.id] }
           field :comment_type, type: :join, relations: {question: %i[answer comment], answer: :vote, vote: :subvote}, join_type: :comment_type, join_id: :commented_id
         end
       end
@@ -234,7 +240,51 @@ describe Chewy::Index::Import::BulkBuilder do
 
         specify do
           expect(subject.bulk_body).to eq([
-            {index: {_id: 3, routing: '1', data: {'content' => 'There!', 'comment_type' => {'name' => 'answer', 'parent' => 1}}}}
+            {index: {_id: 3, routing: '1', data: {'content' => 'There!', 'content_with_crutches' => '[crutches] There!', 'comment_type' => {'name' => 'answer', 'parent' => 1}}}}
+          ])
+        end
+      end
+
+      context 'with raw import' do
+        SimpleComment = Class.new
+          attr_reader :content, :comment_type, :commented_id, :updated_at, :id
+          def initialize(hash)
+            @id = hash['id']
+            @content = hash['content']
+            @comment_type = hash['comment_type']
+            @commented_id = hash['commented_id']
+            @updated_at = hash['updated_at']
+          end
+
+          def derived
+            "[derived] #{content}"
+          end
+        end
+
+        before do
+          stub_index(:comments) do
+            index_scope Comment
+            default_import_options raw_import: ->(hash) { SimpleComment.new(hash) }
+
+            crutch :content_with_crutches do |collection| # collection here is a current batch of products
+              collection.map { |comment| [comment.id, "[crutches] #{comment.content}"] }.to_h
+            end
+
+            field :content
+            field :content_with_crutches, value: ->(comment, crutches) { crutches.content_with_crutches[comment.id] }
+            field :derived
+            field :comment_type, type: :join, relations: {question: %i[answer comment], answer: :vote, vote: :subvote}, join_type: :comment_type, join_id: :commented_id
+          end
+        end
+
+        let(:to_index) { [comments[0]].map{ |c| SimpleComment.new(c.attributes) } }
+        let(:delete) { [existing_comments[0]].map { |c| c } }
+
+        specify do
+          expect(subject.bulk_body).to eq([
+            {index: {_id: 3, routing: '1', data: {'content' => 'There!', 'content_with_crutches' => '[crutches] There!', 'derived' => '[derived] There!', 'comment_type' => {'name' => 'answer', 'parent' => 1}}}},
+            {delete: {_id: 1, routing: '1'}},
+            {delete: {_id: 2, parent: 1, routing: '1'}}
           ])
         end
       end
@@ -256,13 +306,13 @@ describe Chewy::Index::Import::BulkBuilder do
         specify do
           expect(subject.bulk_body).to eq([
             {delete: {_id: 3, routing: '1', parent: 1}},
-            {index: {_id: 3, routing: '31', data: {'content' => 'There!', 'comment_type' => {'name' => 'answer', 'parent' => 31}}}},
+            {index: {_id: 3, routing: '31', data: {'content' => 'There!', 'content_with_crutches' => '[crutches] There!', 'comment_type' => {'name' => 'answer', 'parent' => 31}}}},
             {delete: {_id: 4, routing: '1', parent: 2}},
-            {index: {_id: 4, routing: '4', data: {'content' => 'Yes, he is here.', 'comment_type' => nil}}},
+            {index: {_id: 4, routing: '4', data: {'content' => 'Yes, he is here.', 'content_with_crutches' => '[crutches] Yes, he is here.', 'comment_type' => nil}}},
             {delete: {_id: 12, routing: '11', parent: 11}},
-            {index: {_id: 12, routing: '12', data: {'content' => 'I don\'t know.', 'comment_type' => 'question'}}},
+            {index: {_id: 12, routing: '12', data: {'content' => 'I don\'t know.', 'content_with_crutches' => '[crutches] I don\'t know.', 'comment_type' => 'question'}}},
             {delete: {_id: 21, routing: '21'}},
-            {index: {_id: 21, routing: '1', data: {'content' => 'How are you?', 'comment_type' => {'name' => 'answer', 'parent' => 1}}}}
+            {index: {_id: 21, routing: '1', data: {'content' => 'How are you?', 'content_with_crutches' => '[crutches] How are you?', 'comment_type' => {'name' => 'answer', 'parent' => 1}}}}
           ])
         end
       end
@@ -282,8 +332,8 @@ describe Chewy::Index::Import::BulkBuilder do
 
         specify do
           expect(subject.bulk_body).to eq([
-            {index: {_id: 3, routing: '1', data: {'content' => 'Yes, he is here.', 'comment_type' => {'name' => 'vote', 'parent' => 2}}}},
-            {index: {_id: 4, routing: '1', data: {'content' => 'What?', 'comment_type' => {'name' => 'subvote', 'parent' => 3}}}}
+            {index: {_id: 3, routing: '1', data: {'content' => 'Yes, he is here.', 'content_with_crutches' => '[crutches] Yes, he is here.', 'comment_type' => {'name' => 'vote', 'parent' => 2}}}},
+            {index: {_id: 4, routing: '1', data: {'content' => 'What?', 'content_with_crutches' => '[crutches] What?', 'comment_type' => {'name' => 'subvote', 'parent' => 3}}}}
           ])
         end
       end
@@ -307,11 +357,11 @@ describe Chewy::Index::Import::BulkBuilder do
         it 'reindexes children and grandchildren' do
           expect(subject.bulk_body).to eq([
             {delete: {_id: 2, routing: '1', parent: 1}},
-            {index: {_id: 2, routing: '31', data: {'content' => 'Here.', 'comment_type' => {'name' => 'answer', 'parent' => 31}}}},
+            {index: {_id: 2, routing: '31', data: {'content' => 'Here.', 'content_with_crutches' => '[crutches] Here.', 'comment_type' => {'name' => 'answer', 'parent' => 31}}}},
             {delete: {_id: 3, routing: '1', parent: 2}},
-            {index: {_id: 3, routing: '31', data: {'content' => 'Yes, he is here.', 'comment_type' => {'name' => 'vote', 'parent' => 2}}}},
+            {index: {_id: 3, routing: '31', data: {'content' => 'Yes, he is here.', 'content_with_crutches' => '[crutches] Yes, he is here.', 'comment_type' => {'name' => 'vote', 'parent' => 2}}}},
             {delete: {_id: 4, routing: '1', parent: 3}},
-            {index: {_id: 4, routing: '31', data: {'content' => 'What?', 'comment_type' => {'name' => 'subvote', 'parent' => 3}}}}
+            {index: {_id: 4, routing: '31', data: {'content' => 'What?', 'content_with_crutches' => '[crutches] What?', 'comment_type' => {'name' => 'subvote', 'parent' => 3}}}}
           ])
         end
       end
@@ -345,17 +395,17 @@ describe Chewy::Index::Import::BulkBuilder do
 
         specify do
           expect(subject.bulk_body).to eq([
-            {index: {_id: 3, routing: '1', data: {'content' => 'There!', 'comment_type' => {'name' => 'answer', 'parent' => 1}}}},
-            {index: {_id: 4, routing: '1', data: {'content' => 'Yes, he is here.', 'comment_type' => {'name' => 'vote', 'parent' => 2}}}},
+            {index: {_id: 3, routing: '1', data: {'content' => 'There!', 'content_with_crutches' => '[crutches] There!', 'comment_type' => {'name' => 'answer', 'parent' => 1}}}},
+            {index: {_id: 4, routing: '1', data: {'content' => 'Yes, he is here.', 'content_with_crutches' => '[crutches] Yes, he is here.', 'comment_type' => {'name' => 'vote', 'parent' => 2}}}},
 
-            {index: {_id: 11, routing: '11', data: {'content' => 'What is the sense of the universe?', 'comment_type' => 'question'}}},
-            {index: {_id: 12, routing: '11', data: {'content' => 'I don\'t know.', 'comment_type' => {'name' => 'answer', 'parent' => 11}}}},
-            {index: {_id: 13, routing: '11', data: {'content' => '42', 'comment_type' => {'name' => 'answer', 'parent' => 11}}}},
-            {index: {_id: 14, routing: '11', data: {'content' => 'I think that 42 is a correct answer', 'comment_type' => {'name' => 'vote', 'parent' => 13}}}},
+            {index: {_id: 11, routing: '11', data: {'content' => 'What is the sense of the universe?', 'content_with_crutches' => '[crutches] What is the sense of the universe?', 'comment_type' => 'question'}}},
+            {index: {_id: 12, routing: '11', data: {'content' => 'I don\'t know.', 'content_with_crutches' => '[crutches] I don\'t know.', 'comment_type' => {'name' => 'answer', 'parent' => 11}}}},
+            {index: {_id: 13, routing: '11', data: {'content' => '42', 'content_with_crutches' => '[crutches] 42', 'comment_type' => {'name' => 'answer', 'parent' => 11}}}},
+            {index: {_id: 14, routing: '11', data: {'content' => 'I think that 42 is a correct answer', 'content_with_crutches' => '[crutches] I think that 42 is a correct answer', 'comment_type' => {'name' => 'vote', 'parent' => 13}}}},
 
-            {index: {_id: 21, routing: '21', data: {'content' => 'How are you?', 'comment_type' => 'question'}}},
+            {index: {_id: 21, routing: '21', data: {'content' => 'How are you?', 'content_with_crutches' => '[crutches] How are you?', 'comment_type' => 'question'}}},
 
-            {index: {_id: 32, routing: '31', data: {'content' => 'Ruby', 'comment_type' => {'name' => 'answer', 'parent' => 31}}}}
+            {index: {_id: 32, routing: '31', data: {'content' => 'Ruby', 'content_with_crutches' => '[crutches] Ruby', 'comment_type' => {'name' => 'answer', 'parent' => 31}}}}
           ])
         end
       end

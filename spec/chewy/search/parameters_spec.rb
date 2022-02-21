@@ -13,7 +13,7 @@ describe Chewy::Search::Parameters do
 
     specify { expect(subject.storages[:limit]).to equal(limit) }
     specify { expect(subject.storages[:limit].value).to eq(3) }
-    specify { expect(subject.storages[:order].value).to eq('foo' => nil) }
+    specify { expect(subject.storages[:order].value).to eq(['foo']) }
 
     specify { expect { described_class.new(offset: limit) }.to raise_error(TypeError) }
   end
@@ -55,7 +55,10 @@ describe Chewy::Search::Parameters do
     subject { described_class.new(limit: 10, offset: 20, order: :foo) }
 
     specify { expect { subject.only!([:limit]) }.to change { subject.clone }.to(described_class.new(limit: 10)) }
-    specify { expect { subject.only!(%i[offset order]) }.to change { subject.clone }.to(described_class.new(offset: 20, order: :foo)) }
+    specify do
+      expect { subject.only!(%i[offset order]) }
+        .to change { subject.clone }.to(described_class.new(offset: 20, order: :foo))
+    end
     specify { expect { subject.only!(%i[limit something]) }.to raise_error NameError }
     specify { expect { subject.only!([]) }.to raise_error ArgumentError }
   end
@@ -63,8 +66,14 @@ describe Chewy::Search::Parameters do
   describe '#except!' do
     subject { described_class.new(limit: 10, offset: 20, order: :foo) }
 
-    specify { expect { subject.except!([:limit]) }.to change { subject.clone }.to(described_class.new(offset: 20, order: :foo)) }
-    specify { expect { subject.except!(%i[offset order]) }.to change { subject.clone }.to(described_class.new(limit: 10)) }
+    specify do
+      expect { subject.except!([:limit]) }
+        .to change { subject.clone }.to(described_class.new(offset: 20, order: :foo))
+    end
+    specify do
+      expect { subject.except!(%i[offset order]) }
+        .to change { subject.clone }.to(described_class.new(limit: 10))
+    end
     specify { expect { subject.except!(%i[limit something]) }.to raise_error NameError }
     specify { expect { subject.except!([]) }.to raise_error ArgumentError }
   end
@@ -120,6 +129,11 @@ describe Chewy::Search::Parameters do
     end
 
     context do
+      subject { described_class.new(ignore_unavailable: true) }
+      specify { expect(subject.render).to eq(body: {}, ignore_unavailable: true) }
+    end
+
+    context do
       subject { described_class.new(query: {foo: 'bar'}, filter: {moo: 'baz'}) }
       specify { expect(subject.render).to eq(body: {query: {bool: {must: {foo: 'bar'}, filter: {moo: 'baz'}}}}) }
     end
@@ -141,7 +155,7 @@ describe Chewy::Search::Parameters do
 
     context do
       subject { described_class.new(filter: {moo: 'baz'}, none: true) }
-      specify { expect(subject.render).to eq(body: {query: {bool: {filter: {bool: {must_not: {match_all: {}}}}}}}) }
+      specify { expect(subject.render).to eq(body: {query: {match_none: {}}}) }
     end
   end
 end

@@ -47,6 +47,16 @@ namespace :chewy do
     Chewy::RakeHelper.sync(except: processed)
   end
 
+  desc 'Reindex data from source index to destination index'
+  task :reindex, %i[source dest] => :environment do |_task, args|
+    Chewy::RakeHelper.reindex(source: args[:source], dest: args[:dest])
+  end
+
+  desc 'Update mapping of exising index with body hash'
+  task :update_mapping, %i[index_name] => :environment do |_task, args|
+    Chewy::RakeHelper.update_mapping(name: args[:index_name])
+  end
+
   namespace :parallel do
     desc 'Parallel version of `rake chewy:reset`'
     task reset: :environment do |_task, args|
@@ -102,11 +112,5 @@ namespace :chewy do
         Chewy::Journal.new.apply(time, retries: (retries.to_i if retries))
       end
     end
-  end
-
-  task clean_journal: :environment do |_task, args|
-    ActiveSupport::Deprecation.warn '`rake chewy:clean_journal` is deprecated and will be removed soon, use `rake chewy:journal:clean` instead'
-
-    Chewy::Journal.new.clean(args.extras.first)
   end
 end
